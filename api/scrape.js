@@ -66,41 +66,38 @@ export default async function handler(req, res) {
     const text = await response.text();
     const $ = cheerio.load(text);
 
-    // --- DIRECT REPLICATION OF YOUR ORIGINAL LOGIC ---
+    const urls = [];
 
-    // 1. Find the relevant section header.
+    // --- FINAL CORRECTED LOGIC ---
+    // 1. Find the specific header panel for "Listings" or "Search Results"
     const targetPanel = $('.search-right-head-panel').filter((i, el) => {
         const panelText = $(el).text().trim();
         return panelText === 'Listings' || panelText.includes('Search Results');
     }).first();
 
-    if (!targetPanel.length) {
-        return res.status(200).json({ data: [], message: "Could not find a 'Listings' or 'Search Results' section." });
+    // 2. If the panel is found, get all the elements between it and the next panel
+    if (targetPanel.length > 0) {
+        const contentInSection = targetPanel.nextUntil('.search-right-head-panel');
+
+        // 3. Find the product links only within that specific section of content
+        contentInSection.find('.tiled_results_container a.equip_link').each((i, el) => {
+            const link = $(el).attr('href');
+            if (link) {
+                const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+                urls.push(fullUrl);
+            }
+        });
     }
 
-    // 2. Precisely find all elements between this header and the next one.
-    const contentInSection = targetPanel.nextUntil('.search-right-head-panel');
-
-    // 3. Extract the unique URLs from only the tiles within that section.
-    const urls = [];
-    contentInSection.find('.tiled_results_container a.equip_link').each((i, el) => {
-        const link = $(el).attr('href');
-        if (link) {
-            const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-            urls.push(fullUrl);
-        }
-    });
     const uniqueUrls = [...new Set(urls)];
 
     if (uniqueUrls.length === 0) {
-        return res.status(200).json({ data: [], message: "Found the 'Listings' section, but no products were inside." });
+      return res.status(200).json({ data: [], message: "Could not find any products under a 'Listings' or 'Search Results' header." });
     }
 
-    // 4. Scrape each unique URL.
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
     const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
 
-    // 5. Send the final compiled data back.
     res.status(200).json({ data: allData });
 
   } catch (error) {
