@@ -1,10 +1,8 @@
 import * as cheerio from 'cheerio';
 
-// This User-Agent makes our request look like it's from a real browser.
 const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36';
 
 async function scrapeDetailedPage(url) {
-  // The detail page scraping logic was correct, so it remains unchanged.
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': BROWSER_USER_AGENT }
@@ -15,7 +13,10 @@ async function scrapeDetailedPage(url) {
     const $ = cheerio.load(text);
 
     const productName = $('h1.list-title')?.text().trim() || 'N/A';
-    const price = $('span.price_normal b')?.text().trim() || 'N/A';
+    
+    // --- FIX: Select only the first price element ---
+    const price = $('span.price_normal b').first().text().trim() || 'N/A';
+    
     const sellerName = $('.business-name')?.text().trim() || 'N/A';
 
     let location = 'N/A';
@@ -67,25 +68,21 @@ export default async function handler(req, res) {
     const text = await response.text();
     const $ = cheerio.load(text);
 
-    // --- CORRECTED LOGIC ---
-    // The site structure is simpler than the original extension expected.
-    // We can directly target the container for each listing.
     const urls = [];
     $('div.tiled_results_container').each((i, el) => {
         const link = $(el).find('a.equip_link').attr('href');
         if (link) {
-            // Ensure the link is a full URL
             const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
             urls.push(fullUrl);
         }
     });
-
+    
     const uniqueUrls = [...new Set(urls)];
 
     if (uniqueUrls.length === 0) {
       return res.status(200).json({ data: [], message: "Found the page but could not extract any product links." });
     }
-
+    
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
     const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
 
