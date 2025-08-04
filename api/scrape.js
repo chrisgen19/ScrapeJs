@@ -66,26 +66,36 @@ export default async function handler(req, res) {
     const $ = cheerio.load(text);
 
     const urls = [];
+    let isTargetSection = false; // Flag to indicate if we are in the correct section
 
-    // --- FINAL CORRECTED LOGIC ---
-    // 1. Find the specific header panel.
-    const targetPanel = $('.search-right-head-panel').filter((i, el) => {
-        const panelText = $(el).text().trim();
-        return panelText === 'Listings' || panelText.includes('Search Results');
-    }).first();
+    // --- FINAL LOGIC: Iterate through each section ---
+    $('.search-right-column > *').each((i, el) => {
+        const element = $(el);
 
-    // 2. If the panel is found, only search within the very next sibling 'div.row'.
-    if (targetPanel.length > 0) {
-        const listingContainer = targetPanel.nextAll('div.row').first();
+        // Check if the current element is a section header
+        if (element.hasClass('search-right-head-panel')) {
+            const panelText = element.text().toLowerCase();
 
-        listingContainer.find('.tiled_results_container a.equip_link').each((i, el) => {
-            const link = $(el).attr('href');
-            if (link) {
-                const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-                urls.push(fullUrl);
+            // If we find the correct header, set the flag to true
+            if (panelText.includes('listings') || panelText.includes('search results')) {
+                isTargetSection = true;
+            } else {
+                // If we find any other header, set the flag to false
+                isTargetSection = false;
             }
-        });
-    }
+        }
+
+        // If we are in the target section, find the product links within this element
+        if (isTargetSection) {
+            element.find('.tiled_results_container a.equip_link').each((i, linkEl) => {
+                const link = $(linkEl).attr('href');
+                if (link) {
+                    const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+                    urls.push(fullUrl);
+                }
+            });
+        }
+    });
 
     const uniqueUrls = [...new Set(urls)];
 
