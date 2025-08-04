@@ -65,47 +65,37 @@ export default async function handler(req, res) {
     const text = await response.text();
     const $ = cheerio.load(text);
 
-    // --- REPLICATED LOGIC FROM content.js ---
+    const urls = [];
 
-    // 1. Find the relevant section header.
+    // --- FINAL CORRECTED LOGIC ---
+    // 1. Find the specific header panel.
     const targetPanel = $('.search-right-head-panel').filter((i, el) => {
         const panelText = $(el).text().trim();
-        return panelText.includes('Listings') || panelText.includes('Search Results');
+        return panelText === 'Listings' || panelText.includes('Search Results');
     }).first();
-    
-    let targetTiles = [];
+
+    // 2. If the panel is found, only search within the very next sibling 'div.row'.
     if (targetPanel.length > 0) {
-        // 2. Precisely find all product tiles between this header and the next one.
-        // nextUntil() selects all sibling elements between our panel and the next panel.
-        const contentBetweenHeaders = targetPanel.nextUntil('.search-right-head-panel');
-        
-        // From that selection, find all the product containers.
-        targetTiles = contentBetweenHeaders.find('.tiled_results_container');
-    } else {
-        // Fallback or error if the main "Listings" header isn't found
-        return res.status(200).json({ data: [], message: "Could not find the 'Listings' or 'Search Results' section header." });
+        const listingContainer = targetPanel.nextAll('div.row').first();
+
+        listingContainer.find('.tiled_results_container a.equip_link').each((i, el) => {
+            const link = $(el).attr('href');
+            if (link) {
+                const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+                urls.push(fullUrl);
+            }
+        });
     }
 
-    if (targetTiles.length === 0) {
-        return res.status(200).json({ data: [], message: "Found the 'Listings' section, but no products were inside." });
-    }
-
-    // 3. Extract the unique URLs from the correctly filtered tiles.
-    const urls = [];
-    targetTiles.each((i, tile) => {
-        const link = $(tile).find('a.equip_link').attr('href');
-        if (link) {
-            const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-            urls.push(fullUrl);
-        }
-    });
     const uniqueUrls = [...new Set(urls)];
-    
-    // 4. Scrape each unique URL.
+
+    if (uniqueUrls.length === 0) {
+      return res.status(200).json({ data: [], message: "Could not find any products under a 'Listings' or 'Search Results' header." });
+    }
+
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
     const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
 
-    // 5. Send the final compiled data back.
     res.status(200).json({ data: allData });
 
   } catch (error) {
