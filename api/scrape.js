@@ -3,7 +3,6 @@ import * as cheerio from 'cheerio';
 const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36';
 
 async function scrapeDetailedPage(url) {
-  // This function is correct and remains unchanged.
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': BROWSER_USER_AGENT }
@@ -67,43 +66,20 @@ export default async function handler(req, res) {
     const $ = cheerio.load(text);
 
     const urls = [];
-    let isTargetSection = false; // This is our "switch"
 
-    // --- FINAL LOGIC: Iterate through each direct child of the content column ---
-    $('.search-right-column > *').each((i, el) => {
-        const element = $(el);
-
-        // Check if the current element is a section header
-        if (element.hasClass('search-right-head-panel')) {
-            const panelText = element.text().trim().toLowerCase();
-
-            // If it's the right header, turn our switch ON.
-            if (panelText === 'listings' || panelText.includes('search results')) {
-                isTargetSection = true;
-            } else {
-                // If it's any other header, turn our switch OFF.
-                isTargetSection = false;
-            }
-            // Stop processing this element and move to the next one.
-            return; 
-        }
-
-        // If the switch is ON, this element is a content block under the correct header.
-        if (isTargetSection) {
-            element.find('.tiled_results_container a.equip_link').each((i, linkEl) => {
-                const link = $(linkEl).attr('href');
-                if (link) {
-                    const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-                    urls.push(fullUrl);
-                }
-            });
+    // --- Simplified Logic: Scans all products on the page ---
+    $('div.tiled_results_container a.equip_link').each((i, el) => {
+        const link = $(el).attr('href');
+        if (link) {
+            const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+            urls.push(fullUrl);
         }
     });
 
     const uniqueUrls = [...new Set(urls)];
 
     if (uniqueUrls.length === 0) {
-      return res.status(200).json({ data: [], message: "Could not find any products under a 'Listings' or 'Search Results' header." });
+      return res.status(200).json({ data: [], message: "Could not find any products on the page." });
     }
 
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
