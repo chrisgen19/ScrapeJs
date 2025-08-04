@@ -13,10 +13,7 @@ async function scrapeDetailedPage(url) {
     const $ = cheerio.load(text);
 
     const productName = $('h1.list-title')?.text().trim() || 'N/A';
-    
-    // --- FIX: Select only the first price element ---
     const price = $('span.price_normal b').first().text().trim() || 'N/A';
-    
     const sellerName = $('.business-name')?.text().trim() || 'N/A';
 
     let location = 'N/A';
@@ -69,20 +66,43 @@ export default async function handler(req, res) {
     const $ = cheerio.load(text);
 
     const urls = [];
-    $('div.tiled_results_container').each((i, el) => {
-        const link = $(el).find('a.equip_link').attr('href');
-        if (link) {
-            const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-            urls.push(fullUrl);
+
+    // --- CORRECTED LOGIC ---
+    // Find all panels and identify the target "Listings" or "Search Results" panel.
+    const allPanels = $('.search-right-head-panel');
+    let targetPanelIndex = -1;
+
+    allPanels.each((index, el) => {
+        const panelText = $(el).text().trim();
+        if (panelText.includes('Listings') || panelText.includes('Search Results')) {
+            targetPanelIndex = index;
+            return false; // Exit the loop once found
         }
     });
-    
+
+    // If the target panel is found, process the elements between it and the next panel.
+    if (targetPanelIndex !== -1) {
+        const targetPanel = allPanels.eq(targetPanelIndex);
+
+        // Get all siblings between the target panel and the next one
+        const contentBetween = targetPanel.nextUntil('.search-right-head-panel');
+
+        // Find the product links only within that specific section
+        contentBetween.find('.tiled_results_container a.equip_link').each((i, el) => {
+            const link = $(el).attr('href');
+            if (link) {
+                const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+                urls.push(fullUrl);
+            }
+        });
+    }
+
     const uniqueUrls = [...new Set(urls)];
 
     if (uniqueUrls.length === 0) {
-      return res.status(200).json({ data: [], message: "Found the page but could not extract any product links." });
+      return res.status(200).json({ data: [], message: "Found the page but could not find the 'Listings' or 'Search Results' section." });
     }
-    
+
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
     const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
 
