@@ -94,7 +94,7 @@ function App() {
   return (
     <div className="container">
       <img src={logo} alt="Scraper4Gel Logo" style={{ width: '100px', marginBottom: '20px' }} />
-      <h3>Scraper4Gel 🚀</h3>
+      <h3>Scraper4Gel</h3>
       <p>Enter a Machines4U search or listing URL to begin.</p>
       
       <div className="input-group">
