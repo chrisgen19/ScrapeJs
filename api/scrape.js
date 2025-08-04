@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36';
 
 async function scrapeDetailedPage(url) {
+  // This function works correctly and remains unchanged.
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': BROWSER_USER_AGENT }
@@ -65,50 +66,41 @@ export default async function handler(req, res) {
     const text = await response.text();
     const $ = cheerio.load(text);
 
+    // --- DIRECT REPLICATION OF YOUR ORIGINAL LOGIC ---
+
+    // 1. Find the relevant section header.
+    const targetPanel = $('.search-right-head-panel').filter((i, el) => {
+        const panelText = $(el).text().trim();
+        return panelText === 'Listings' || panelText.includes('Search Results');
+    }).first();
+
+    if (!targetPanel.length) {
+        return res.status(200).json({ data: [], message: "Could not find a 'Listings' or 'Search Results' section." });
+    }
+
+    // 2. Precisely find all elements between this header and the next one.
+    const contentInSection = targetPanel.nextUntil('.search-right-head-panel');
+
+    // 3. Extract the unique URLs from only the tiles within that section.
     const urls = [];
-    let isTargetSection = false;
-
-    // --- FINAL CORRECTED LOGIC ---
-    // Iterate through each child of the main content column
-    $('.search-right-column > *').each((i, el) => {
-        const element = $(el);
-
-        // Check if the current element is a section header
-        if (element.hasClass('search-right-head-panel')) {
-            const panelText = element.text().trim().toLowerCase();
-
-            // If we find the correct header, set the flag. Otherwise, turn it off.
-            if (panelText.includes('listings') || panelText.includes('search results')) {
-                isTargetSection = true;
-            } else {
-                isTargetSection = false;
-            }
-            // *** We continue to the next element after processing a header ***
-            return; 
-        }
-
-        // If the flag is on, it means this element is under the correct header.
-        // Scrape any product tiles found within it.
-        if (isTargetSection) {
-            element.find('.tiled_results_container a.equip_link').each((i, linkEl) => {
-                const link = $(linkEl).attr('href');
-                if (link) {
-                    const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-                    urls.push(fullUrl);
-                }
-            });
+    contentInSection.find('.tiled_results_container a.equip_link').each((i, el) => {
+        const link = $(el).attr('href');
+        if (link) {
+            const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+            urls.push(fullUrl);
         }
     });
-
     const uniqueUrls = [...new Set(urls)];
 
     if (uniqueUrls.length === 0) {
-      return res.status(200).json({ data: [], message: "Could not find any products under a 'Listings' or 'Search Results' header." });
+        return res.status(200).json({ data: [], message: "Found the 'Listings' section, but no products were inside." });
     }
 
+    // 4. Scrape each unique URL.
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
     const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
 
+    // 5. Send the final compiled data back.
     res.status(200).json({ data: allData });
 
   } catch (error) {
