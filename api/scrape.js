@@ -1,16 +1,19 @@
 import * as cheerio from 'cheerio';
 
-// Helper function to scrape a single product detail page
+// This User-Agent makes our request look like it's from a real browser.
+const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36';
+
 async function scrapeDetailedPage(url) {
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      console.error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
-      return null;
-    }
-    const text = await response.text();
-    const $ = cheerio.load(text); // Use Cheerio to parse the HTML
+    const response = await fetch(url, {
+      headers: { 'User-Agent': BROWSER_USER_AGENT } // FIX 1: Add User-Agent to every request
+    });
+    if (!response.ok) return null;
 
+    const text = await response.text();
+    const $ = cheerio.load(text);
+
+    // This detail page scraping logic seems robust and is kept the same.
     const productName = $('h1.list-title')?.text().trim() || 'N/A';
     const price = $('span.price_normal b')?.text().trim() || 'N/A';
     const sellerName = $('.business-name')?.text().trim() || 'N/A';
@@ -46,7 +49,6 @@ async function scrapeDetailedPage(url) {
   }
 }
 
-// This is the main Vercel Serverless Function handler
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Only POST requests are allowed' });
@@ -55,19 +57,41 @@ export default async function handler(req, res) {
   const { url: pageUrl } = req.body;
 
   if (!pageUrl || !pageUrl.startsWith('https://www.machines4u.com.au')) {
-      return res.status(400).json({ error: 'A valid Machines4U URL is required.' });
+    return res.status(400).json({ error: 'A valid Machines4U URL is required.' });
   }
 
   try {
-    // 1. Fetch the main search/listing page
-    const response = await fetch(pageUrl);
+    const response = await fetch(pageUrl, {
+      headers: { 'User-Agent': BROWSER_USER_AGENT } // FIX 1: Add User-Agent to the main request
+    });
     const text = await response.text();
     const $ = cheerio.load(text);
 
-    // 2. Find all unique product links
+    // FIX 2: Re-implementing your original, more robust logic for finding listings.
+    let targetTiles = [];
+    const targetPanel = $('.search-right-head-panel').filter((i, el) => {
+        const text = $(el).text().trim();
+        return text === 'Listings' || text.includes('Search Results');
+    }).first();
+
+    if (targetPanel.length > 0) {
+        // Find all tiled_results_container elements that are siblings after the target panel
+        // and before the next panel.
+        targetPanel.nextUntil('.search-right-head-panel').filter('.tiled_results_container').each((i, el) => {
+            targetTiles.push($(el));
+        });
+    }
+
+    if (targetTiles.length === 0) {
+        // Fallback to the simpler method if the robust one fails
+        $('.tiled_results_container').each((i, el) => {
+            targetTiles.push($(el));
+        });
+    }
+
     const urls = [];
-    $('.tiled_results_container a.equip_link').each((i, el) => {
-        const href = $(el).attr('href');
+    targetTiles.forEach($tile => {
+        const href = $tile.find('a.equip_link').attr('href');
         if (href) {
             urls.push(href);
         }
@@ -75,14 +99,12 @@ export default async function handler(req, res) {
     const uniqueUrls = [...new Set(urls)];
 
     if (uniqueUrls.length === 0) {
-        return res.status(404).json({ error: "Could not find any product listings on the provided URL." });
+      return res.status(200).json({ data: [], message: "Could not find any product links. The site structure may have changed or the page is protected." });
     }
-
-    // 3. Scrape each product page concurrently
+    
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
-    const allData = (await Promise.all(scrapePromises)).filter(item => item !== null); // Filter out any failed scrapes
+    const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
 
-    // 4. Send the final data back to the frontend
     res.status(200).json({ data: allData });
 
   } catch (error) {
