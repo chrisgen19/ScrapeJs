@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Papa from 'papaparse'; // Using papaparse for robust CSV conversion
+import logo from './assets/logo.png'; // 1. Import the image
 
 // Re-using your filename generation logic from popup.js
 function generateFilenameFromUrl(url) {
@@ -92,7 +93,8 @@ function App() {
 
   return (
     <div className="container">
-      <h3>Machines4U Scraper 🚀</h3>
+      <img src={logo} alt="Scraper4Gel Logo" style={{ width: '100px', marginBottom: '20px' }} />
+      <h3>Scraper4Gel 🚀</h3>
       <p>Enter a Machines4U search or listing URL to begin.</p>
       
       <div className="input-group">
