@@ -1,8 +1,53 @@
-// --- DIAGNOSTIC CODE ---
-// This code will not scrape. It will return the raw HTML from the target URL
-// so we can see if we are being blocked.
+import * as cheerio from 'cheerio';
 
+// This User-Agent makes our request look like it's from a real browser.
 const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36';
+
+async function scrapeDetailedPage(url) {
+  // The detail page scraping logic was correct, so it remains unchanged.
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': BROWSER_USER_AGENT }
+    });
+    if (!response.ok) return null;
+
+    const text = await response.text();
+    const $ = cheerio.load(text);
+
+    const productName = $('h1.list-title')?.text().trim() || 'N/A';
+    const price = $('span.price_normal b')?.text().trim() || 'N/A';
+    const sellerName = $('.business-name')?.text().trim() || 'N/A';
+
+    let location = 'N/A';
+    const locationElement = $('a[onclick="showAdvertMap()"]');
+    if (locationElement.length) {
+        const fullLocationText = locationElement.text().trim();
+        const locationParts = fullLocationText.split(',');
+        location = locationParts.length > 1 ? locationParts[locationParts.length - 1].trim() : fullLocationText;
+    }
+
+    const details = {
+      'Condition': 'N/A', 'Category': 'N/A', 'Make': 'N/A',
+      'Model': 'N/A', 'Year': 'N/A', 'Type of Sale': 'N/A'
+    };
+
+    $('.ad_det_children').each((i, element) => {
+      const label = $(element).text().trim().replace(':', '');
+      if (details.hasOwnProperty(label)) {
+        details[label] = $(element).next().text().trim();
+      }
+    });
+
+    return {
+      "Brand": details.Make, "Model": details.Model, "Condition": details.Condition,
+      "Location": location, "Seller": sellerName, "Year": details.Year,
+      "Price": price, "URL": url, "AD Title": productName
+    };
+  } catch (error) {
+    console.error(`Error scraping detail page ${url}:`, error);
+    return null;
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -19,15 +64,35 @@ export default async function handler(req, res) {
     const response = await fetch(pageUrl, {
       headers: { 'User-Agent': BROWSER_USER_AGENT }
     });
-
-    // Get the response as raw text
     const text = await response.text();
+    const $ = cheerio.load(text);
 
-    // Send the raw text back to the user instead of JSON
-    res.setHeader('Content-Type', 'text/plain'); // Set header to plain text
-    res.status(200).send(text);
+    // --- CORRECTED LOGIC ---
+    // The site structure is simpler than the original extension expected.
+    // We can directly target the container for each listing.
+    const urls = [];
+    $('div.tiled_results_container').each((i, el) => {
+        const link = $(el).find('a.equip_link').attr('href');
+        if (link) {
+            // Ensure the link is a full URL
+            const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+            urls.push(fullUrl);
+        }
+    });
+
+    const uniqueUrls = [...new Set(urls)];
+
+    if (uniqueUrls.length === 0) {
+      return res.status(200).json({ data: [], message: "Found the page but could not extract any product links." });
+    }
+
+    const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
+    const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
+
+    res.status(200).json({ data: allData });
 
   } catch (error) {
+    console.error('Scraping failed:', error);
     res.status(500).json({ error: `An error occurred: ${error.message}` });
   }
 }
