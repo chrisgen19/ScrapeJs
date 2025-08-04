@@ -66,26 +66,29 @@ export default async function handler(req, res) {
     const $ = cheerio.load(text);
 
     const urls = [];
-    let isTargetSection = false; // Flag to indicate if we are in the correct section
+    let isTargetSection = false;
 
-    // --- FINAL LOGIC: Iterate through each section ---
+    // --- FINAL CORRECTED LOGIC ---
+    // Iterate through each child of the main content column
     $('.search-right-column > *').each((i, el) => {
         const element = $(el);
 
         // Check if the current element is a section header
         if (element.hasClass('search-right-head-panel')) {
-            const panelText = element.text().toLowerCase();
+            const panelText = element.text().trim().toLowerCase();
 
-            // If we find the correct header, set the flag to true
+            // If we find the correct header, set the flag. Otherwise, turn it off.
             if (panelText.includes('listings') || panelText.includes('search results')) {
                 isTargetSection = true;
             } else {
-                // If we find any other header, set the flag to false
                 isTargetSection = false;
             }
+            // *** We continue to the next element after processing a header ***
+            return; 
         }
 
-        // If we are in the target section, find the product links within this element
+        // If the flag is on, it means this element is under the correct header.
+        // Scrape any product tiles found within it.
         if (isTargetSection) {
             element.find('.tiled_results_container a.equip_link').each((i, linkEl) => {
                 const link = $(linkEl).attr('href');
