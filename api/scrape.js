@@ -65,47 +65,47 @@ export default async function handler(req, res) {
     const text = await response.text();
     const $ = cheerio.load(text);
 
-    const urls = [];
+    // --- REPLICATED LOGIC FROM content.js ---
 
-    // --- CORRECTED LOGIC ---
-    // Find all panels and identify the target "Listings" or "Search Results" panel.
-    const allPanels = $('.search-right-head-panel');
-    let targetPanelIndex = -1;
-
-    allPanels.each((index, el) => {
+    // 1. Find the relevant section header.
+    const targetPanel = $('.search-right-head-panel').filter((i, el) => {
         const panelText = $(el).text().trim();
-        if (panelText.includes('Listings') || panelText.includes('Search Results')) {
-            targetPanelIndex = index;
-            return false; // Exit the loop once found
+        return panelText.includes('Listings') || panelText.includes('Search Results');
+    }).first();
+    
+    let targetTiles = [];
+    if (targetPanel.length > 0) {
+        // 2. Precisely find all product tiles between this header and the next one.
+        // nextUntil() selects all sibling elements between our panel and the next panel.
+        const contentBetweenHeaders = targetPanel.nextUntil('.search-right-head-panel');
+        
+        // From that selection, find all the product containers.
+        targetTiles = contentBetweenHeaders.find('.tiled_results_container');
+    } else {
+        // Fallback or error if the main "Listings" header isn't found
+        return res.status(200).json({ data: [], message: "Could not find the 'Listings' or 'Search Results' section header." });
+    }
+
+    if (targetTiles.length === 0) {
+        return res.status(200).json({ data: [], message: "Found the 'Listings' section, but no products were inside." });
+    }
+
+    // 3. Extract the unique URLs from the correctly filtered tiles.
+    const urls = [];
+    targetTiles.each((i, tile) => {
+        const link = $(tile).find('a.equip_link').attr('href');
+        if (link) {
+            const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+            urls.push(fullUrl);
         }
     });
-
-    // If the target panel is found, process the elements between it and the next panel.
-    if (targetPanelIndex !== -1) {
-        const targetPanel = allPanels.eq(targetPanelIndex);
-
-        // Get all siblings between the target panel and the next one
-        const contentBetween = targetPanel.nextUntil('.search-right-head-panel');
-
-        // Find the product links only within that specific section
-        contentBetween.find('.tiled_results_container a.equip_link').each((i, el) => {
-            const link = $(el).attr('href');
-            if (link) {
-                const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-                urls.push(fullUrl);
-            }
-        });
-    }
-
     const uniqueUrls = [...new Set(urls)];
-
-    if (uniqueUrls.length === 0) {
-      return res.status(200).json({ data: [], message: "Found the page but could not find the 'Listings' or 'Search Results' section." });
-    }
-
+    
+    // 4. Scrape each unique URL.
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
     const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
 
+    // 5. Send the final compiled data back.
     res.status(200).json({ data: allData });
 
   } catch (error) {
