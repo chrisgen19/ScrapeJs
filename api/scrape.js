@@ -12,34 +12,49 @@ async function scrapeDetailedPage(url) {
     const text = await response.text();
     const $ = cheerio.load(text);
 
-    const productName = $('h1.list-title')?.text().trim() || 'N/A';
+    // --- USING YOUR PRECISE SELECTORS FOR THE DETAIL PAGE ---
+    const productName = $('h1.list-title').first().text().trim() || 'N/A';
     const price = $('span.price_normal b').first().text().trim() || 'N/A';
-    const sellerName = $('.business-name')?.text().trim() || 'N/A';
+    const sellerName = $('div.business-name').first().text().trim() || 'N/A';
 
     let location = 'N/A';
-    const locationElement = $('a[onclick="showAdvertMap()"]');
+    const locationElement = $('a[onclick="showAdvertMap()"]').first();
     if (locationElement.length) {
         const fullLocationText = locationElement.text().trim();
         const locationParts = fullLocationText.split(',');
-        location = locationParts.length > 1 ? locationParts[locationParts.length - 1].trim() : fullLocationText;
+        if (locationParts.length > 1) {
+            location = locationParts[locationParts.length - 1].trim();
+        } else {
+            location = fullLocationText;
+        }
     }
 
     const details = {
-      'Condition': 'N/A', 'Category': 'N/A', 'Make': 'N/A',
-      'Model': 'N/A', 'Year': 'N/A', 'Type of Sale': 'N/A'
+      'Condition': 'N/A', 'Make': 'N/A', 'Model': 'N/A', 'Year': 'N/A'
     };
 
     $('.ad_det_children').each((i, element) => {
-      const label = $(element).text().trim().replace(':', '');
-      if (details.hasOwnProperty(label)) {
-        details[label] = $(element).next().text().trim();
+      const labelNode = $(element);
+      const labelText = labelNode.text().trim().replace(':', '');
+      
+      // The value is in the next sibling .ad_det_children element
+      const valueNode = labelNode.next('.ad_det_children');
+
+      if (details.hasOwnProperty(labelText) && valueNode.length > 0) {
+        details[labelText] = valueNode.text().trim();
       }
     });
 
     return {
-      "Brand": details.Make, "Model": details.Model, "Condition": details.Condition,
-      "Location": location, "Seller": sellerName, "Year": details.Year,
-      "Price": price, "URL": url, "AD Title": productName
+      "Brand": details.Make,
+      "Model": details.Model,
+      "Condition": details.Condition,
+      "Location": location,
+      "Seller": sellerName,
+      "Year": details.Year,
+      "Price": price,
+      "URL": url,
+      "AD Title": productName
     };
   } catch (error) {
     console.error(`Error scraping detail page ${url}:`, error);
@@ -53,7 +68,6 @@ export default async function handler(req, res) {
   }
 
   const { url: pageUrl } = req.body;
-
   if (!pageUrl || !pageUrl.startsWith('https://www.machines4u.com.au')) {
     return res.status(400).json({ error: 'A valid Machines4U URL is required.' });
   }
@@ -66,22 +80,34 @@ export default async function handler(req, res) {
     const $ = cheerio.load(text);
 
     const urls = [];
+    
+    // --- FINAL LOGIC: Scan ONLY the "Spotlight Ads" section ---
 
-    // --- Simplified Logic: Scans all products on the page ---
-    $('div.tiled_results_container a.equip_link').each((i, el) => {
-        const link = $(el).attr('href');
-        if (link) {
-            const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-            urls.push(fullUrl);
-        }
-    });
+    // 1. Find the specific header panel for "Spotlight Ads"
+    const targetPanel = $('.search-right-head-panel').filter((i, el) => {
+        return $(el).text().trim() === 'Spotlight Ads';
+    }).first();
 
+    // 2. If the panel is found, get the content between it and the next panel.
+    if (targetPanel.length > 0) {
+        const contentInSection = targetPanel.nextUntil('.search-right-head-panel');
+        
+        // 3. Find the product links only within that specific section.
+        contentInSection.find('.tiled_results_container a.equip_link').each((i, el) => {
+            const link = $(el).attr('href');
+            if (link) {
+                const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+                urls.push(fullUrl);
+            }
+        });
+    }
+    
     const uniqueUrls = [...new Set(urls)];
 
     if (uniqueUrls.length === 0) {
-      return res.status(200).json({ data: [], message: "Could not find any products on the page." });
+      return res.status(200).json({ data: [], message: "Could not find any products under the 'Spotlight Ads' header." });
     }
-
+    
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
     const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
 
