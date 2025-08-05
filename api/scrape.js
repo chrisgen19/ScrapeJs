@@ -3,7 +3,8 @@ import * as cheerio from 'cheerio';
 const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36';
 
 async function scrapeDetailedPage(url) {
-  // This function works correctly and remains unchanged.
+  // This function correctly scrapes the individual product pages.
+  // It has been updated to handle price variations and remains unchanged.
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': BROWSER_USER_AGENT }
@@ -69,22 +70,37 @@ export default async function handler(req, res) {
     const $ = cheerio.load(text);
 
     const urls = [];
+    
+    // --- FINAL CORRECTED LOGIC: Replicates your original logic precisely ---
 
-    // --- SIMPLE LOGIC: Scans ALL products on the page, no filtering ---
-    $('div.tiled_results_container a.equip_link').each((i, el) => {
-        const link = $(el).attr('href');
-        if (link) {
-            const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-            urls.push(fullUrl);
-        }
-    });
+    // 1. Find the specific header panel for "Listings" or "Search Results"
+    const targetPanel = $('.search-right-head-panel').filter((i, el) => {
+        const panelText = $(el).text().trim();
+        return panelText === 'Listings' || panelText.includes('Search Results');
+    }).first();
 
+    // 2. If the panel is found, get all sibling elements between it and the next panel.
+    if (targetPanel.length > 0) {
+        // nextUntil() is the correct Cheerio function to replicate the browser's logic.
+        // It selects all sibling elements AFTER the targetPanel UNTIL it hits the next panel.
+        const contentInSection = targetPanel.nextUntil('.search-right-head-panel');
+        
+        // 3. Find the product links only within that specific section of content.
+        contentInSection.find('.tiled_results_container a.equip_link').each((i, el) => {
+            const link = $(el).attr('href');
+            if (link) {
+                const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+                urls.push(fullUrl);
+            }
+        });
+    }
+    
     const uniqueUrls = [...new Set(urls)];
 
     if (uniqueUrls.length === 0) {
-      return res.status(200).json({ data: [], message: "Could not find any products on the page." });
+      return res.status(200).json({ data: [], message: "Could not find any products under a 'Listings' or 'Search Results' header." });
     }
-
+    
     const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
     const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
 
