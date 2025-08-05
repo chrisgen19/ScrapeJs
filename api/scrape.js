@@ -3,24 +3,43 @@ import * as cheerio from 'cheerio';
 const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36';
 
 async function scrapeDetailedPage(url) {
-  // This function correctly scrapes the individual product pages.
-  // It has been updated to handle price variations and remains unchanged.
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': BROWSER_USER_AGENT }
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+        console.error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+        return null;
+    }
 
     const text = await response.text();
     const $ = cheerio.load(text);
 
     const productName = $('h1.list-title')?.text().trim() || 'N/A';
-    const price = $('span.price_normal b').first().text().trim() || 'N/A';
-    const sellerName = $('div.business-name').first().text().trim() || 'N/A';
+    
+    // --- Copied robust price extraction logic ---
+    let price = 'N/A';
+    const priceElement = $('span.price_normal b').first();
+    if (priceElement.length > 0) {
+      price = priceElement.text().trim();
+    } else {
+      const altPriceElement = $('span.price_gstex b').first();
+      if (altPriceElement.length > 0) {
+        price = altPriceElement.text().trim();
+      } else {
+        const containerPrice = $('.price_container').first().text().trim();
+        if (containerPrice) {
+          const priceMatch = containerPrice.match(/\$[\d,]+/);
+          price = priceMatch ? priceMatch[0] : containerPrice;
+        }
+      }
+    }
+    
+    const sellerName = $('.business-name').first().text().trim() || 'N/A';
 
     let location = 'N/A';
     const locationElement = $('a[onclick="showAdvertMap()"]');
-    if (locationElement.length) {
+    if (locationElement.length > 0) {
         const fullLocationText = locationElement.text().trim();
         const locationParts = fullLocationText.split(',');
         location = locationParts.length > 1 ? locationParts[locationParts.length - 1].trim() : fullLocationText;
@@ -70,39 +89,55 @@ export default async function handler(req, res) {
     const $ = cheerio.load(text);
 
     const urls = [];
-    
-    // --- FINAL CORRECTED LOGIC: Replicates your original logic precisely ---
+    let foundListingsSection = false;
+    let stopCollecting = false;
 
-    // 1. Find the specific header panel for "Listings" or "Search Results"
-    const targetPanel = $('.search-right-head-panel').filter((i, el) => {
-        const panelText = $(el).text().trim();
-        return panelText === 'Listings' || panelText.includes('Search Results');
-    }).first();
+    // --- Copied robust section finding logic ---
+    $('.search-right-column > *').each((index, element) => {
+        // If we've started collecting and hit another header, stop.
+        if (stopCollecting) return;
 
-    // 2. If the panel is found, get all sibling elements between it and the next panel.
-    if (targetPanel.length > 0) {
-        // nextUntil() is the correct Cheerio function to replicate the browser's logic.
-        // It selects all sibling elements AFTER the targetPanel UNTIL it hits the next panel.
-        const contentInSection = targetPanel.nextUntil('.search-right-head-panel');
-        
-        // 3. Find the product links only within that specific section of content.
-        contentInSection.find('.tiled_results_container a.equip_link').each((i, el) => {
-            const link = $(el).attr('href');
-            if (link) {
-                const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
-                urls.push(fullUrl);
+        const $el = $(element);
+
+        // Check for section headers
+        if ($el.hasClass('search-right-head-panel')) {
+            const sectionText = $el.text().trim();
+            
+            if (sectionText === 'Listings' || sectionText.includes('Search Results')) {
+                foundListingsSection = true; // Start collecting from elements AFTER this header
+            } else if (foundListingsSection) {
+                // We were in the right section, but we found a new header, so we stop.
+                stopCollecting = true;
             }
-        });
-    }
-    
+        }
+        
+        // If we are in the correct section, find product links within the current element
+        if (foundListingsSection && !stopCollecting) {
+            $el.find('.tiled_results_container a.equip_link').each((i, linkEl) => {
+                const link = $(linkEl).attr('href');
+                if (link) {
+                    const fullUrl = link.startsWith('http') ? link : `https://www.machines4u.com.au${link}`;
+                    urls.push(fullUrl);
+                }
+            });
+        }
+    });
+
     const uniqueUrls = [...new Set(urls)];
 
     if (uniqueUrls.length === 0) {
-      return res.status(200).json({ data: [], message: "Could not find any products under a 'Listings' or 'Search Results' header." });
+      return res.status(200).json({ data: [], message: "No products found in the 'Listings' or 'Search Results' section." });
     }
     
-    const scrapePromises = uniqueUrls.map(url => scrapeDetailedPage(url));
-    const allData = (await Promise.all(scrapePromises)).filter(item => item !== null);
+    const allData = [];
+    for (const url of uniqueUrls) {
+        const data = await scrapeDetailedPage(url);
+        if (data) {
+            allData.push(data);
+        }
+        // Optional delay to be kinder to their server
+        await new Promise(resolve => setTimeout(resolve, 100)); 
+    }
 
     res.status(200).json({ data: allData });
 
