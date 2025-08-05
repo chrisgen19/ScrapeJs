@@ -100,15 +100,16 @@ export default async function handler(req, res) {
         const $el = $(element);
 
         // Check for section headers
-        if ($el.hasClass('search-right-head-panel')) {
-            const sectionText = $el.text().trim();
-            
-            if (sectionText === 'Listings' || sectionText.includes('Search Results')) {
-                foundListingsSection = true; // Start collecting from elements AFTER this header
-            } else if (foundListingsSection) {
-                // We were in the right section, but we found a new header, so we stop.
-                stopCollecting = true;
-            }
+        if ($el.hasClass('search-right-head-panel')) { // Is it a section header?
+          const sectionText = $el.text().trim();
+          
+          if (sectionText === 'Listings' || sectionText.includes('Search Results')) {
+            foundListingsSection = true; // START collecting
+            stopCollecting = false; // (This ensures it keeps going if it finds multiple 'Listings' sections)
+          } else if (foundListingsSection && (sectionText.includes('Other') || sectionText === 'Spotlight Ads')) {
+            // Only stop if the section is specifically 'Other' or 'Spotlight Ads'.
+            stopCollecting = true; // STOP collecting
+          }
         }
         
         // If we are in the correct section, find product links within the current element
